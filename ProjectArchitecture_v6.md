@@ -2,8 +2,8 @@
 # PEG Project Architecture - Complete Documentation
 ==============================================================
 **Project:** Polarized Event Generator for p+C Scattering  
-**Date:** March 2026  
-**Version:** 6.0  
+**Date:** May 2026  
+**Version:** 7.0  
 **Status:** Meyer Energy-Dependent Sampling — Default ✅
 
 **Change log v5 → v6:**
@@ -12,6 +12,17 @@
 - T_SAMPLING_MEYER is now the default for both elastic and inelastic
 - Systematic quantification of all three sampling modes completed
 - New diagnostic and comparison macros added
+
+**Change log v6 → v7:**
+- Output filename convention updated: ΔΘ and ΔΦ acceptance windows now
+  encoded in filename as `dTh<N>_dPh<N>` (milliradians, integer)
+- Sampling mode label appended to filename (`_MEYER`, `_THETA`, `_T`)
+- New script `GeneratePinLikeBeam.C` added for calibration use:
+  generates all events at a single fixed θ_lab with R/L split
+  determined exactly by the analyzing power and beam polarization
+- Bug fix in `GeneratePinLikeBeam.C`: inelastic θ_lab inversion now
+  uses `ConvertThetaCMtoLab_Inelastic` (correct pcm) instead of the
+  elastic version, resolving a 0.014° offset in the inelastic channel
 
 ---
 
@@ -26,11 +37,15 @@ Summary
  
  4 t-Based Sampling Implementation (Feb 2026)
  
- 5 **NEW:** Meyer Energy-Dependent Sampling (Mar 2026)
+ 5 Meyer Energy-Dependent Sampling (Mar 2026)
  
- 6 **NEW:** Bug Fix — THETA_CM Unit Error (Mar 2026)
+ 6 Bug Fix — THETA_CM Unit Error (Mar 2026)
  
- 7 **NEW:** Systematic Comparison of Sampling Modes (Mar 2026)
+ 7 Systematic Comparison of Sampling Modes (Mar 2026)
+
+ 8 **NEW:** Output Filename Convention Update (May 2026)
+
+ 9 **NEW:** Pin-Like Beam Generator (May 2026)
 
 
 ---
@@ -47,9 +62,12 @@ Tutorials are provided: https://plutouser.github.io/v6.01/PlutoHTMLDoc/examples/
 ├── AnalysisAN.C                      # Systematic detector position study
 ├── BenchmarkInelasticScattering.C    # Inelastic physics benchmarks  
 ├── CrossSectionAnalyzingPower.csv    # Experimental reference data
+├── GeneratePinLikeBeam.C             # NEW: Pin-like beam generator (calibration)
 ├── ProjectArchitecture_v1.md         # Documentation version 1
 ├── ProjectArchitecture_v2.md         # Documentation version 2
-├── ProjectArchitecture_v3.md         # Documentation version 3 (latest)
+├── ProjectArchitecture_v3.md         # Documentation version 3
+├── ProjectArchitecture_v6.md         # Documentation version 6
+├── ProjectArchitecture_v7.md         # Documentation version 7 (latest)
 ├── ValidateSimulation_XsAndAn.C      # Comprehensive validation suite
 ├── inelastic_analyzingpower_443_200MeV.csv    # Digitized AN data
 ├── inelastic_crosssection_443_200MeV.csv      # Digitized XS data
@@ -174,7 +192,7 @@ Total: 10 directories, 274 files
 The project has a **flat structure** at the root level with the following organization:
 
 **Root Directory (`~/pluto_v6.02/PEG/`) contains:**
-- **4 Analysis Scripts:** AnalysisAN.C, BenchmarkInelasticScattering.C, ValidateSimulation_XsAndAn.C, sigma_pC_Elas_EventGenerator.C
+- **5 Analysis Scripts:** AnalysisAN.C, BenchmarkInelasticScattering.C, ValidateSimulation_XsAndAn.C, sigma_pC_Elas_EventGenerator.C, GeneratePinLikeBeam.C
 - **3 CSV Data Files:** CrossSectionAnalyzingPower.csv, inelastic_analyzingpower_443_200MeV.csv, inelastic_crosssection_443_200MeV.csv
 - **2 Configuration Files:** rootlogon.C, sigma_pC_Elas_EventGenerator_C.d
 - **5 Subdirectories:** BackupCode/, Data/, include/, output/, src/
@@ -206,13 +224,36 @@ The project has a **flat structure** at the root level with the following organi
 
 ### **File Naming Convention:**
 
-**Simulation ROOT files:**
+**Standard simulation ROOT files (multithreaded generator):**
 ```
-pC_{Elas|Inel443}_200MeV_MT_P{polarization}_Spin{Up|Down}_{angle}.root
+pC_{Elas|Inel443}_<E>MeV_MT_P<pol>_Spin{Up|Down}_<angle>_dTh<dtheta>_dPh<dphi>_<MODE>.root
+
+Fields:
+  <E>      beam kinetic energy [MeV], 3 digits
+  <pol>    beam polarization [%], integer (e.g. 80)
+  <angle>  detector theta_lab encoded as XXpY (e.g. 16.2° -> 16p2)
+  <dtheta> theta acceptance window [mrad], integer (e.g. 5 for 0.005 rad)
+  <dphi>   phi acceptance window [mrad], integer   (e.g. 5 for 0.005 rad)
+  <MODE>   sampling mode: MEYER | THETA | T
 
 Examples:
-- pC_Elas_200MeV_MT_P80_SpinUp_16p2.root
-- pC_Inel443_200MeV_MT_P80_SpinDown_14p0.root
+  pC_Elas_200MeV_MT_P80_SpinUp_16p2_dTh5_dPh5_MEYER.root
+  pC_Inel443_200MeV_MT_P80_SpinDown_14p0_dTh5_dPh5_MEYER.root
+```
+
+**Pin-like beam ROOT files (calibration generator):**
+```
+pC_{Elas|Inel443}_Pin_<E>MeV_P<pol>_Spin{Up|Down}_<angle>.root
+
+Fields:
+  Pin      distinguishes pin-like from standard multithreaded files
+  <E>      beam kinetic energy [MeV], 3 digits
+  <pol>    beam polarization [%], integer
+  <angle>  requested theta_lab encoded as XXpY
+
+Examples:
+  pC_Elas_Pin_200MeV_P80_SpinUp_16p2.root
+  pC_Inel443_Pin_200MeV_P80_SpinDown_16p2.root
 ```
 
 **Compiled artifacts pattern:**
@@ -301,16 +342,17 @@ Examples:
 
 | Module | Depends On | Used By |
 |--------|-----------|---------|
-| **PhysicalConstants.h** | *None* | Kinematics, InelasticScattering, EventGenerator |
+| **PhysicalConstants.h** | *None* | Kinematics, InelasticScattering, EventGenerator, GeneratePinLikeBeam |
 | **DetectorConfig.h/.C** | *None* | Kinematics, EventGenerator, Main |
 | **ThreadUtils.h** | *None* | EventGenerator |
 | **ElasticScattering.h/.C** | XSLog*.C (10 files) | EventGenerator, Main, Tests |
-| **InelasticScattering.h/.C** | PhysicalConstants | EventGenerator |
-| **Kinematics.h/.C** | PhysicalConstants, DetectorConfig | EventGenerator, Tests |
-| **MeyerScattering.h/.C** ⭐ NEW | XSSpline/APSpline *.C (8 files) | EventGenerator |
+| **InelasticScattering.h/.C** | PhysicalConstants | EventGenerator, GeneratePinLikeBeam |
+| **Kinematics.h/.C** | PhysicalConstants, DetectorConfig | EventGenerator, GeneratePinLikeBeam, Tests |
+| **MeyerScattering.h/.C** ⭐ NEW | XSSpline/APSpline *.C (8 files) | EventGenerator, GeneratePinLikeBeam |
 | **EventGenerator.h/.C** | All above modules + MeyerScattering | Main program |
-| **AnalyzingPowerUtils.h/.C** | *None* (standalone) | Analysis scripts |
+| **AnalyzingPowerUtils.h/.C** | *None* (standalone) | Analysis scripts, GeneratePinLikeBeam |
 | **sigma_pC_Elas_EventGenerator.C** | DetectorConfig, PhysicalConstants, ElasticScattering, EventGenerator | *User entry point* |
+| **GeneratePinLikeBeam.C** ⭐ NEW | Kinematics, InelasticScattering, MeyerScattering, AnalyzingPowerUtils | *Calibration entry point* |
 
 ---
 
@@ -1955,5 +1997,217 @@ No CSV files needed. No optical model files needed.
 ---
 
 ═══════════════════════════════════════════════════════════════════
-## END OF DOCUMENTATION v6.0
+## END OF DOCUMENTATION v6.0 CONTENT
+═══════════════════════════════════════════════════════════════════
+
+---
+
+═══════════════════════════════════════════════════════════════════
+## 🆕 SECTION 8: OUTPUT FILENAME CONVENTION UPDATE (May 2026)
+═══════════════════════════════════════════════════════════════════
+
+### Motivation
+
+The previous filename convention did not encode the detector acceptance
+windows (ΔΘ, ΔΦ) or the sampling mode. This made it impossible to
+distinguish files generated with different acceptance settings from the
+filename alone, which is important for systematic studies where
+`SetDetectorConfig()` is called with non-default windows.
+
+### Change
+
+Two new fields are appended to the standard simulation filename before
+the `.root` extension:
+
+```
+OLD: pC_Elas_200MeV_MT_P80_SpinUp_16p2.root
+NEW: pC_Elas_200MeV_MT_P80_SpinUp_16p2_dTh5_dPh5_MEYER.root
+```
+
+The fields are computed in `src/EventGenerator.C` inside both
+`SingleRunMultithreadPolarized` and `SingleRunMultithreadInelasticPolarized`:
+
+```cpp
+int dtheta_mrad = (int)(DETECTOR_THETA_WINDOW * 1000. + 0.5);
+int dphi_mrad   = (int)(DETECTOR_PHI_WINDOW   * 1000. + 0.5);
+TString modeLabel = (mode == T_SAMPLING_MEYER) ? "MEYER"
+                  : (mode == T_SAMPLING)        ? "T"
+                  :                               "THETA";
+
+TString basename = Form("pC_Elas_%3.0fMeV_MT_P%d_%s_%dp%d_dTh%d_dPh%d_%s",
+                    energy, polar_int, spinLabel.Data(),
+                    (int)DETECTOR_THETA_CENTER,
+                    (int)(DETECTOR_THETA_CENTER*10)%10,
+                    dtheta_mrad, dphi_mrad,
+                    modeLabel.Data());
+```
+
+The integer rounding uses `+ 0.5` before truncation to avoid floating-point
+precision issues (e.g. `0.005 * 1000 = 4.9999...` truncating to 4).
+
+### Impact on Analysis Scripts
+
+`ExtractDetectorAngle()` in `AnalysisAN.C` parses the detector angle from
+the filename by reading the field immediately before `_dTh`. Scripts that
+scan directory listings with `FindDataFiles()` use a pattern match on the
+channel+energy+polarization prefix, which is unchanged, so existing
+analysis workflows are unaffected.
+
+### Full Filename Reference
+
+| Field | Content | Example |
+|-------|---------|---------|
+| Channel | `pC_Elas` or `pC_Inel443` | `pC_Elas` |
+| Energy | `<E>MeV` | `200MeV` |
+| Threading | `MT` (multithreaded) | `MT` |
+| Polarization | `P<pol>` | `P80` |
+| Spin | `SpinUp` or `SpinDown` | `SpinUp` |
+| Angle | `<deg>p<dec>` | `16p2` |
+| ΔΘ | `dTh<mrad>` | `dTh5` |
+| ΔΦ | `dPh<mrad>` | `dPh5` |
+| Mode | `MEYER`, `T`, or `THETA` | `MEYER` |
+
+---
+
+═══════════════════════════════════════════════════════════════════
+## 🆕 SECTION 9: PIN-LIKE BEAM GENERATOR (May 2026)
+═══════════════════════════════════════════════════════════════════
+
+### Purpose
+
+`GeneratePinLikeBeam.C` generates events for **detector calibration**.
+Unlike the standard generator which samples θ_CM from a cross-section
+distribution and applies acceptance cuts, this script places all events
+at exactly one requested θ_lab. The right/left detector split is set
+by the physical analyzing power at that angle, making the output
+suitable as a calibration reference where the input A_N is known exactly.
+
+### Physics
+
+Given N_total events all at a fixed θ_lab:
+
+```
+epsilon  = P × A_N(θ_lab, energy) × spin_state
+N_right  = N_total × (1 + epsilon) / 2    [phi = 0,   right detector]
+N_left   = N_total × (1 - epsilon) / 2    [phi = π,   left detector]
+```
+
+A_N is evaluated from the Meyer energy-interpolated splines
+(`MeyerAP_Elastic` or `MeyerAP_Inelastic`), making the result valid
+for any beam energy in [160, 200] MeV.
+
+### Key Implementation Detail — Inelastic Inversion
+
+For the inelastic channel, θ_lab → θ_CM inversion must use
+`ConvertThetaCMtoLab_Inelastic` (defined locally in the script) rather
+than the elastic `ConvertThetaCMtoLab`. The two differ because the
+inelastic CM momentum is reduced by the 4.43 MeV excitation energy.
+Using the elastic version caused a systematic 0.014° offset in the
+reconstructed θ_lab for inelastic events, which was caught by the
+Level 2 check and corrected.
+
+```cpp
+// Inelastic-specific forward conversion used in bisection
+Double_t ConvertThetaCMtoLab_Inelastic(Double_t energy,
+                                        Double_t theta_cm_deg) {
+    Double_t pcm = CalculateCMMomentumInelastic(energy, E_EXCITATION);
+    // ... boost with inelastic pcm ...
+}
+```
+
+### Output Files
+
+```
+pC_Elas_Pin_<E>MeV_P<pol>_Spin{Up|Down}_<angle>.root
+pC_Inel443_Pin_<E>MeV_P<pol>_Spin{Up|Down}_<angle>.root
+
+Examples:
+  pC_Elas_Pin_200MeV_P80_SpinUp_16p2.root
+  pC_Inel443_Pin_200MeV_P80_SpinDown_16p2.root
+```
+
+The `_Pin_` token distinguishes calibration files from standard
+multithreaded simulation files in directory scans.
+
+### Public Functions
+
+| Function | Purpose |
+|----------|---------|
+| `RunPinLikeBeam(E, θ, N, P, spin, elastic)` | Single angle, single spin |
+| `RunPinLikeBeamBothSpins(E, θ, N, P, elastic)` | Both spins at one angle |
+| `RunPinLikeBeamBothSpinsAndCheck(E, θ, N, P, elastic)` | Generate + verify |
+| `RunPinLikeBeamScan(E, angles_vec, N, P, elastic)` | Grid scan over angle list |
+| `RunPinLikeBeamScanRange(E, min, max, step, N, P, elastic)` | Range scan |
+| `CheckPinLikeBeam(file, E, θ, P, spin, elastic)` | Single-file verification |
+| `CheckPinLikeBeamAN(file_up, file_down, E, θ, P, elastic)` | Full closure test |
+
+### Verification Suite
+
+Two levels of check are built in and run automatically by
+`RunPinLikeBeamBothSpinsAndCheck`:
+
+**Level 1 — Asymmetry check** (`CheckPinLikeBeam`):
+Counts N_right and N_left from the file, computes the measured ε,
+and compares to the expected `P × A_N × spin_state`. Pass threshold:
+`|ε_measured − ε_expected| < 1e-4` (limited by integer rounding only).
+
+**Level 2 — Theta distribution** (`CheckPinLikeBeam`):
+Histograms θ_lab for all events and checks that mean and RMS are both
+`< 1e-3 deg` — confirming every proton lands at exactly the requested
+angle (delta-function distribution).
+
+**Closure test** (`CheckPinLikeBeamAN`):
+Uses both spin files together with `CountEventsInFileByPhi` +
+`CalculateAsymmetry` + `AsymmetryToAnalyzingPower` — the identical
+analysis chain used in `AnalyzeDetectorSystematics`. The reconstructed
+A_N is compared to the Meyer input value. Pass threshold: pull < 2σ.
+
+### Usage Examples
+
+```cpp
+// Elastic, both spins, with full verification
+RunPinLikeBeamBothSpinsAndCheck(200.0, 16.2, 100000, 0.80)
+
+// Inelastic, both spins, with full verification
+RunPinLikeBeamBothSpinsAndCheck(200.0, 16.2, 100000, 0.80, false)
+
+// Single spin, elastic
+RunPinLikeBeam(200.0, 16.2, 100000, 0.80, +1)        // spin up
+RunPinLikeBeam(200.0, 16.2, 100000, 0.80, -1, false)  // spin down, inelastic
+
+// Grid scan — generates both spins at each angle
+vector<Double_t> scan = {14.0, 15.0, 16.0, 16.2, 17.0, 18.0};
+RunPinLikeBeamScan(200.0, scan, 100000, 0.80)
+
+// Range scan — 14° to 18° in 0.5° steps
+RunPinLikeBeamScanRange(200.0, 14.0, 18.0, 0.5, 100000, 0.80)
+```
+
+### Validated Results (200 MeV, 16.2°, P=80%, N=100k)
+
+**Elastic:**
+```
+A_N (Meyer):       0.995674
+epsilon expected:  0.796539  (spin up)
+epsilon measured:  0.796539
+Difference:        4.4e-07   ✓ PASS
+theta_lab mean:    16.2000 deg
+theta_lab RMS:     3.6e-05 deg   ✓ PASS
+A_N closure pull:  0.000154 sigma   ✓ PASS
+```
+
+**Inelastic:**
+```
+A_N (Meyer):       0.833699
+epsilon expected:  0.666959  (spin up)
+epsilon measured:  0.666960
+Difference:        1.1e-06   ✓ PASS
+theta_lab mean:    16.2000 deg   ✓ PASS (after inelastic inversion fix)
+A_N closure pull:  0.000392 sigma   ✓ PASS
+```
+
+---
+
+═══════════════════════════════════════════════════════════════════
+## END OF DOCUMENTATION v7.0
 ═══════════════════════════════════════════════════════════════════
