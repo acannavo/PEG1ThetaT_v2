@@ -827,10 +827,14 @@ void SingleRunMultithreadPolarized(Double_t energy, Int_t number_total,
 	TString modeLabel  = (mode == T_SAMPLING_MEYER) ? "MEYER"
 	                   : (mode == T_SAMPLING)        ? "T"
 	                   :                               "THETA";
-	TString basename = Form("pC_Elas_%3.0fMeV_MT_P%d_%s_%dp%d_%s",
-	                    energy, polar_int, spinLabel.Data(),
-	                    (int)DETECTOR_THETA_CENTER, (int)(DETECTOR_THETA_CENTER*10)%10,
-	                    modeLabel.Data());
+	int dtheta_mrad = (int)(DETECTOR_THETA_WINDOW * 1000. + 0.5);
+	int dphi_mrad   = (int)(DETECTOR_PHI_WINDOW   * 1000. + 0.5);
+	TString basename = Form("pC_Elas_%3.0fMeV_MT_P%d_%s_%dp%d_dTh%d_dPh%d_%s",
+						energy, polar_int, spinLabel.Data(),
+						(int)DETECTOR_THETA_CENTER, (int)(DETECTOR_THETA_CENTER*10)%10,
+						dtheta_mrad, dphi_mrad,
+						modeLabel.Data());
+						
 	TString nameo = MakeOutputPath(basename + ".txt");
 	TString namer = MakeOutputPath(basename + ".root");
 
@@ -1158,10 +1162,14 @@ void SingleRunMultithreadInelasticPolarized(Double_t energy, Int_t number_total,
     int polar_int = (int)(polarization * 100);
     TString spinLabel  = (spin_state > 0) ? "SpinUp" : "SpinDown";
     TString modeLabel  = (mode == T_SAMPLING_MEYER) ? "MEYER" : "THETA";
-    TString basename = Form("pC_Inel443_%3.0fMeV_MT_P%d_%s_%dp%d_%s",
-                        energy, polar_int, spinLabel.Data(),
-                        (int)DETECTOR_THETA_CENTER, (int)(DETECTOR_THETA_CENTER*10)%10,
-                        modeLabel.Data());
+    int dtheta_mrad = (int)(DETECTOR_THETA_WINDOW * 1000. + 0.5);
+    int dphi_mrad   = (int)(DETECTOR_PHI_WINDOW   * 1000. + 0.5);
+	TString basename = Form("pC_Inel443_%3.0fMeV_MT_P%d_%s_%dp%d_dTh%d_dPh%d_%s",
+						energy, polar_int, spinLabel.Data(),
+						(int)DETECTOR_THETA_CENTER, (int)(DETECTOR_THETA_CENTER*10)%10,
+						dtheta_mrad, dphi_mrad,
+						modeLabel.Data());
+						
     TString nameo = MakeOutputPath(basename + ".txt");
     TString namer = MakeOutputPath(basename + ".root");
 
